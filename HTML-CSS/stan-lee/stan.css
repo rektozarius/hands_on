@@ -1,0 +1,74 @@
+body{
+    background-color: black;
+    color: white;
+}
+
+.container{
+    margin: auto;
+    width: 80%;
+    background-color: rgb(34, 24, 2);
+    border-radius: 20px;
+}
+
+.heading{
+    font-family: "Lobster", cursive;
+    font-size: 50px;
+    text-align: center;
+    margin-bottom: 5px;
+}
+
+#span1{
+    color: red;
+}
+
+#img-div{
+    text-align: center;
+}
+
+#image{
+    width: 300px;
+    border-radius: 50px;
+}
+
+#date{
+    font-size: 80%;
+    margin: 5px 20px;
+}
+
+#info{
+    margin: 30px 70px;
+    font-size: 18px;
+}
+
+#marvel{
+    color: red;
+    font-size: 20px;
+    text-align: left;
+    margin: 20px;
+    padding-left: 40px;
+}
+
+ul{
+    width: 80%;
+    margin: auto;
+}
+
+li{
+    font-size: 20px;
+    line-height: 50px;
+}
+
+#footer{
+    text-align: center;
+    padding: 30px;
+    font-size: 30px;
+}
+
+#link{
+    text-decoration: none;
+    border: 1px solid orange;
+    border-radius: 10px;
+    padding: 10px;
+    color: white;
+    background-color: black;
+}
