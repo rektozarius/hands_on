@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  This CloudFormation template creates an ASG with ELB and LT.
+  
+Parameters:
+  InstanceType:
+    Description: Choose the instance type 
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+         - t2.micro
+         - t3.micro
+         - t2.nano
+  KeyPair:
+    Description: Choose your key pair
+    Type: AWS::EC2::KeyPair::KeyName
+  EnvType:
+    Description: Choose your environment type
+    Type: String
+    AllowedValues:
+         - test
+         - prod
+  SubnetList:
+    Description: Choose at least 2 subnets
+    Type: List<AWS::EC2::Subnet::Id>
+  VPCParam:
+    Description: Choose your VPC
+    Type: AWS::EC2::VPC::Id
+
+Mappings:
+  RegionImageMap:
+    us-east-1:
+      prod: ami-0715c1897453cabd1
+      test: ami-0bef6cc322bfff646
+    us-east-2:
+      prod: ami-01107263728f3bef4
+      test: ami-05842f1afbf311a43
+    us-west-1:
+      prod: ami-0062dbf6b829f04e1
+      test: ami-04669a22aad391419
+    us-west-2:
+      prod: ami-0ab193018f3e9351b
+      test: ami-03c7c1f17ee073747
+    eu-west-1:
+      prod: ami-04f7efe62f419d9f5
+      test: ami-0e23c576dacf2e3df
+  
+Resources:
+  SecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SSH and HTTP
+      GroupName: rektosecgroupcfn
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0   
+      VpcId: !Ref VPCParam
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      Name: rektotargetgrpcfn
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref VPCParam
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !FindInMap
+          - RegionImageMap
+          - !Ref AWS::Region
+          - !Ref EnvType 
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyPair
+        SecurityGroupIds:
+          - !GetAtt SecGroup.GroupId # !Ref MySecGroup
+        UserData: !Base64 |
+          #!/bin/bash
+          #update os
+          yum update -y
+          #install apache server
+          yum install -y httpd
+          # get private ip address of ec2 instance using instance metadata
+          TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"` \
+          && PRIVATE_IP=`curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4`
+          # get public ip address of ec2 instance using instance metadata
+          TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"` \
+          && PUBLIC_IP=`curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4` 
+          # get date and time of server
+          DATE_TIME=`date`
+          # set all permissions
+          chmod -R 777 /var/www/html
+          # create a custom index.html file
+          echo "<html>
+              <head>
+              <title> Application Load Balancer</title>
+              </head>
+              <body>
+                  <h1>Testing Application Load Balancer</h1>
+                  <h2>Congratulations! You have created an instance from Launch Template(rekto-lt-cfn)</h2>
+                  <h3>This web server is launched from the launch template by Salih via CFN</h3>
+                  <p>This instance is created at <b>$DATE_TIME</b></p>
+                  <p>Private IP address of this instance is <b>$PRIVATE_IP</b></p>
+                  <p>Public IP address of this instance is <b>$PUBLIC_IP</b></p>
+              </body>
+              </html>" > /var/www/html/index.html
+              # start apache server
+              systemctl start httpd
+              systemctl enable httpd
+      LaunchTemplateName: rekto-lt-cfn
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: rekto-elb-cfn
+      SecurityGroups: 
+        - !GetAtt SecGroup.GroupId # !Ref SecGroup
+      Subnets: !Ref SubnetList # "-" causes nested array, since the parameter returns a list anyway
+  ELBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref TargetGroup # !GetAtt TargetGroup.TargetGroupArn
+          Type: forward
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+  ASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: rekto-asg-cfn
+      DesiredCapacity: 1
+      HealthCheckType: ELB
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      MaxSize: 4
+      MinSize: 1
+      TargetGroupARNs: 
+        - !Ref TargetGroup # !GetAtt TargetGroup.TargetGroupArn
+      VPCZoneIdentifier: !Ref SubnetList # "-" causes nested array, since the parameter returns a list anyway
+  MyASGPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref ASG
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 60.0
+
+Outputs:
+  OurOutput:
+    Description: Displays the DNS address of our ELB
+    Value: !Join [ '', [ 'http://',!GetAtt LoadBalancer.DNSName ] ]
